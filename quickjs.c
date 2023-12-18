@@ -6402,6 +6402,7 @@ static void build_backtrace(JSContext *ctx, JSValue error_obj,
     has_prepare = FALSE;
     i = 0;
     csd_count = 10;
+    csd = NULL;
 
     if (!rt->in_prepare_stack_trace && !JS_IsNull(ctx->error_ctor)) {
         prepare = js_dup(ctx->error_prepare_stack);
