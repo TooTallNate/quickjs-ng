@@ -6400,6 +6400,9 @@ static void build_backtrace(JSContext *ctx, JSValue error_obj,
 
     rt = ctx->rt;
     has_prepare = FALSE;
+    i = 0;
+    csd_count = 10;
+
     if (!rt->in_prepare_stack_trace && !JS_IsNull(ctx->error_ctor)) {
         prepare = js_dup(ctx->error_prepare_stack);
         has_prepare = JS_IsFunction(ctx, prepare);
@@ -6409,8 +6412,6 @@ static void build_backtrace(JSContext *ctx, JSValue error_obj,
     if (has_prepare) {
         saved_exception = rt->current_exception;
         rt->current_exception = JS_NULL;
-        i = 0;
-        csd_count = 8; // Sstart with a reasonable number.
         csd = js_malloc(ctx, sizeof(*csd) * csd_count);
         if (!csd)
             goto done;
@@ -6500,7 +6501,7 @@ static void build_backtrace(JSContext *ctx, JSValue error_obj,
             error_obj,
             stack,
         };
-        JSValue stack2 = JS_Call(ctx, prepare, JS_UNDEFINED, countof(args), args);
+        JSValue stack2 = JS_Call(ctx, prepare, ctx->error_ctor, countof(args), args);
         JS_FreeValue(ctx, stack);
         if (JS_IsException(stack2))
             stack = JS_NULL;
@@ -36179,9 +36180,8 @@ static JSValue js_error_get_prepareStackTrace(JSContext *ctx, JSValue this_val)
     val = JS_ToObject(ctx, this_val);
     if (JS_IsException(val))
         return val;
-    ret = JS_GetPrototype(ctx, val);
     JS_FreeValue(ctx, val);
-    return ret;
+    return js_dup(ctx->error_prepare_stack);
 }
 
 static JSValue js_error_set_prepareStackTrace(JSContext *ctx, JSValue this_val, JSValue value)
@@ -47776,7 +47776,7 @@ void JS_AddIntrinsicBaseObjects(JSContext *ctx)
     /* Error */
     ctx->error_ctor = JS_NewCFunctionMagic(ctx, js_error_constructor,
                                            "Error", 1, JS_CFUNC_constructor_or_func_magic, -1);
-    JS_NewGlobalCConstructor2(ctx, JS_DupValue(ctx, ctx->error_ctor),
+    JS_NewGlobalCConstructor2(ctx, js_dup(ctx->error_ctor),
                               "Error", ctx->class_proto[JS_CLASS_ERROR]);
     JS_SetPropertyFunctionList(ctx, ctx->error_ctor, js_error_funcs, countof(js_error_funcs));
 
@@ -51699,6 +51699,10 @@ static void js_new_callsite_data(JSContext *ctx, JSCallSiteData *csd, JSStackFra
         csd->line_num = line_num1;
         csd->col_num = col_num1;
         csd->filename = JS_AtomToString(ctx, b->filename);
+        if (JS_IsException(csd->filename)) {
+            csd->filename = JS_NULL;
+            JS_GetException(ctx); // Clear exception.
+        }
     } else {
         csd->native = TRUE;
         csd->line_num = -1;
@@ -51715,8 +51719,10 @@ static void js_new_callsite_data2(JSContext *ctx, JSCallSiteData *csd, const cha
     csd->line_num = line_num;
     csd->col_num = col_num;
     csd->filename = JS_NewString(ctx, filename);
-    if (JS_IsException(csd->filename))
+    if (JS_IsException(csd->filename)) {
         csd->filename = JS_NULL;
+        JS_GetException(ctx); // Clear exception.
+    }
 }
 
 static JSValue js_callsite_getcolumnnumber(JSContext *ctx, JSValue this_val, int argc, JSValue *argv)
@@ -51737,7 +51743,7 @@ static JSValue js_callsite_getfilename(JSContext *ctx, JSValue this_val, int arg
 
 static JSValue js_callsite_getfunction(JSContext *ctx, JSValue this_val, int argc, JSValue *argv)
 {
-        JSCallSiteData *csd = JS_GetOpaque2(ctx, this_val, JS_CLASS_CALL_SITE);
+    JSCallSiteData *csd = JS_GetOpaque2(ctx, this_val, JS_CLASS_CALL_SITE);
     if (!csd)
         return JS_EXCEPTION;
     return js_dup(csd->func);
