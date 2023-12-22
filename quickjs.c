@@ -40678,7 +40678,17 @@ static int getTimezoneOffset(int64_t time) {
     }
     ti = time;
     localtime_r(&ti, &tm);
+#ifdef HAVE_TM_GMTOFF
     return -tm.tm_gmtoff / 60;
+#else
+    struct tm gmt;
+    gmtime_r(&ti, &gmt);
+
+    /* disable DST adjustment on the local tm struct */
+    tm.tm_isdst = 0;
+
+    return difftime(mktime(&gmt), mktime(&tm)) / 60;
+#endif /* HAVE_TM_GMTOFF */
 #endif
 }
 
